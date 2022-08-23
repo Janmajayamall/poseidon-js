@@ -103,11 +103,29 @@ function permute(state, spec) {
 			return F.mul(val, F.square(F.square(val, val)));
 		});
 	};
+	const matrixMulVector = (matrix, vector) => {
+		let res = [];
+		for (let i = 0; i < matrix.length; i++) {
+			res.push(
+				vector.reduce((acc, v, j) => {
+					F.add(acc, F.mul(v, matrix[i][j]));
+				}, F.zero())
+			);
+		}
+		return res;
+	};
+	const sBoxPartial = (state) => {
+		state[0] = F.mul(state[0], F.square(F.square(state[0], state[0])));
+		return state;
+	};
 	const addRoundConstants = (state, constants) => {
 		return state.map((val, i) => {
 			F.add(val, constants[i]);
 		});
 	};
+
+	// T should always equal state length
+	if (state.length != spec.t) throw new Error("T != state.length");
 
 	let rF = spec.rF / 2;
 
@@ -116,25 +134,43 @@ function permute(state, spec) {
 	for (let i = 1; i < rF - 1; i++) {
 		state = sBoxFull(state);
 		state = addRoundConstants(state, spec.constants.start[i]);
-		// apply MDS
+		state = matrixMulVector(spec.mdsMatrices.mds, state);
 	}
 	state = sBoxFull(state);
 	state = addRoundConstants(
 		state,
 		spec.constants.start[spec.constants.start.length - 1]
 	);
-	// apple MDS
+	state = matrixMulVector(spec.mdsMatrices.preSparseMds, state);
 
 	// Partial rounds
+	for (let i = 0; i < spec.constants.partial.length; i++) {
+		state = sBoxPartial(state);
+		state[0] = F.add(state[0], spec.constants.partial[i]);
+
+		// apply sparse matrix mds to state
+		let sparseMatrix = spec.mdsMatrices.sparseMatrices[i];
+		state[0] = sparseMatrix.row.reduce((acc, v, i) => {
+			F.add(acc, F.mul(v, state[i]));
+		}, F.zero());
+		for (let i = 1; i < state.length; i++) {
+			state[i] = F.add(
+				F.mul(sparseMatrix.colHat[i - 1], state[0]),
+				state[i]
+			);
+		}
+	}
 
 	// Second half full rounds
 	for (let i = 0; i < spec.constants.end.length; i++) {
 		state = sBoxFull(state);
 		state = addRoundConstants(state, spec.constants.end[i]);
-		// apply MDS
+		state = matrixMulVector(spec.mdsMatrices.mds, state);
 	}
 	state = sBoxFull(state);
-	// apply MDS
+	state = matrixMulVector(spec.mdsMatrices.mds, state);
+
+	return state;
 }
 
 async function poseidon() {
