@@ -1,12 +1,6 @@
 const assert = require("assert");
-const { getCurveFromName } = require("ffjavascript");
+const { getCurveFromName, utils } = require("ffjavascript");
 const fs = require("fs");
-
-async function poseidon() {
-	const bn128 = await getCurveFromName("bn128", true);
-	const F = bn128.Fr;
-	let spec = await parseSpec(F);
-}
 
 class Poseidon {
 	constructor(specPath) {
@@ -18,24 +12,6 @@ class Poseidon {
 
 		this.state = [];
 		this.absorbing = [];
-	}
-
-	async loadCurve() {
-		this.curve = await getCurveFromName("bn128", true);
-		this.F = this.curve.Fr;
-	}
-
-	loadState() {
-		if (this.F == undefined) throw new Error("Curve not loaded");
-		if (this.spec == undefined) throw new Error("Spec not loaded");
-
-		let state = [];
-		for (let i = 0; i < this.spec.t; i++) {
-			state.push(F.zero());
-		}
-		state[0] = 21;
-
-		this.state = state;
 	}
 
 	async parseSpec() {
@@ -63,9 +39,7 @@ class Poseidon {
 					let roundConstantsRaw = raw.constants.start[j];
 					let roundConstants = [];
 					for (let i = 0; i < roundConstantsRaw.length; i++) {
-						roundConstants.push(
-							F.e(new Uint8Array(roundConstantsRaw[i]))
-						);
+						roundConstants.push(F.fromRprLE(roundConstantsRaw[i]));
 					}
 					constants.start.push(roundConstants);
 				}
@@ -74,16 +48,14 @@ class Poseidon {
 					let roundConstantsRaw = raw.constants.end[j];
 					let roundConstants = [];
 					for (let i = 0; i < roundConstantsRaw.length; i++) {
-						roundConstants.push(
-							F.e(new Uint8Array(roundConstantsRaw[i]))
-						);
+						roundConstants.push(F.fromRprLE(roundConstantsRaw[i]));
 					}
 					constants.end.push(roundConstants);
 				}
 				constants.partial = [];
 				for (let j = 0; j < raw.constants.partial.length; j++) {
 					constants.partial.push(
-						F.e(new Uint8Array(raw.constants.partial[j]))
+						F.fromRprLE(raw.constants.partial[j])
 					);
 				}
 
@@ -93,7 +65,7 @@ class Poseidon {
 					let rowRaw = raw.mdsMatrices.mds[j];
 					let row = [];
 					for (let i = 0; i < rowRaw.length; i++) {
-						row.push(F.e(new Uint8Array(rowRaw[i])));
+						row.push(F.fromRprLE(rowRaw[i]));
 					}
 					mdsMatrices.mds.push(row);
 				}
@@ -102,7 +74,7 @@ class Poseidon {
 					let rowRaw = raw.mdsMatrices.preSparseMds[j];
 					let row = [];
 					for (let i = 0; i < rowRaw.length; i++) {
-						row.push(F.e(new Uint8Array(rowRaw[i])));
+						row.push(F.fromRprLE(rowRaw[i]));
 					}
 					mdsMatrices.preSparseMds.push(row);
 				}
@@ -117,13 +89,13 @@ class Poseidon {
 					sparseMatrix.row = [];
 					for (let i = 0; i < sparseMatrixRaw.row.length; i++) {
 						sparseMatrix.row.push(
-							F.e(new Uint8Array(sparseMatrixRaw.row[i]))
+							F.fromRprLE(sparseMatrixRaw.row[i])
 						);
 					}
 					sparseMatrix.colHat = [];
 					for (let i = 0; i < sparseMatrixRaw.colHat.length; i++) {
 						sparseMatrix.colHat.push(
-							F.e(new Uint8Array(sparseMatrixRaw.colHat[i]))
+							F.fromRprLE(sparseMatrixRaw.colHat[i])
 						);
 					}
 					mdsMatrices.sparseMatrices.push(sparseMatrix);
@@ -141,10 +113,33 @@ class Poseidon {
 		});
 	}
 
-	permute() {
-		let state = this.state;
-		let spec = this.spec;
+	async loadCurve() {
+		this.curve = await getCurveFromName("bn128", true);
+		this.F = this.curve.Fr;
+	}
 
+	loadState() {
+		if (this.F == undefined) throw new Error("Curve not loaded");
+		if (this.spec == undefined) throw new Error("Spec not loaded");
+
+		const F = this.F;
+
+		let state = [];
+		for (let i = 0; i < this.spec.t; i++) {
+			state.push(F.e(0));
+		}
+		// 2 ** 64
+		state[0] = F.e(18446744073709551616);
+
+		this.state = state;
+	}
+
+	permute() {
+		const spec = this.spec;
+		const F = this.F;
+		let state = this.state;
+
+		// helpers
 		const sBoxFull = (state) => {
 			return state.map((val) => {
 				return F.mul(val, F.square(F.square(val, val)));
@@ -155,8 +150,8 @@ class Poseidon {
 			for (let i = 0; i < matrix.length; i++) {
 				res.push(
 					vector.reduce((acc, v, j) => {
-						F.add(acc, F.mul(v, matrix[i][j]));
-					}, F.zero())
+						return F.add(acc, F.mul(v, matrix[i][j]));
+					}, F.e(0))
 				);
 			}
 			return res;
@@ -167,7 +162,7 @@ class Poseidon {
 		};
 		const addRoundConstants = (state, constants) => {
 			return state.map((val, i) => {
-				F.add(val, constants[i]);
+				return F.add(val, constants[i]);
 			});
 		};
 
@@ -178,7 +173,7 @@ class Poseidon {
 
 		// First half full rounds
 		state = addRoundConstants(state, spec.constants.start[0]);
-		for (let i = 1; i < rF - 1; i++) {
+		for (let i = 1; i < rF; i++) {
 			state = sBoxFull(state);
 			state = addRoundConstants(state, spec.constants.start[i]);
 			state = matrixMulVector(spec.mdsMatrices.mds, state);
@@ -197,13 +192,14 @@ class Poseidon {
 
 			// apply sparse matrix mds to state
 			let sparseMatrix = spec.mdsMatrices.sparseMatrices[i];
-			state[0] = sparseMatrix.row.reduce((acc, v, i) => {
-				F.add(acc, F.mul(v, state[i]));
-			}, F.zero());
-			for (let i = 1; i < state.length; i++) {
-				state[i] = F.add(
-					F.mul(sparseMatrix.colHat[i - 1], state[0]),
-					state[i]
+			let tmp = state[0];
+			state[0] = sparseMatrix.row.reduce((acc, v, index) => {
+				return F.add(acc, F.mul(v, state[index]));
+			}, F.e(0));
+			for (let j = 1; j < state.length; j++) {
+				state[j] = F.add(
+					F.mul(sparseMatrix.colHat[j - 1], tmp),
+					state[j]
 				);
 			}
 		}
@@ -220,16 +216,32 @@ class Poseidon {
 		this.state = state;
 	}
 
-	update(inputs) {
-		if (!Array.isArray(inputs))
-			throw new Error("Input must be an array of Uint8Array!");
+	updateFromRprLE(inputs) {
+		const F = this.F;
+
+		if (!Array.isArray(inputs)) throw new Error("Input must be an array!");
 
 		inputs = inputs.map((input) => {
-			let input = new Uint8Array(input);
-			// TODO: avoid using 32 here
-			if (input.byteLength != 32)
-				throw new Error("Invalid element in inputs array");
+			assert(
+				(Array.isArray(input) && input.length == F.n8) ||
+					input.byteLength == F.n8
+			);
+
+			return F.fromRprLE(input);
 		});
+
+		this.update(inputs);
+	}
+
+	update(inputs) {
+		const F = this.F;
+
+		assert(
+			inputs.reduce((acc, v, i) => {
+				return v.byteLength == F.n8 && acc;
+			}),
+			true
+		);
 
 		// add inputs absorption line
 		let absorbing = this.absorbing.concat(inputs);
@@ -240,13 +252,14 @@ class Poseidon {
 		for (let i = 0; i < absorbing.length; i++) {
 			pInputs.push(absorbing[i]);
 
-			if (i != 0 && (i + 1) % rate == 0) {
+			if ((i != 0 || rate == 1) && (i + 1) % rate == 0) {
 				// add pInputs to state
 				assert(this.state.length - 1 == pInputs.length);
 				this.state = this.state.map((v, i) => {
 					if (i != 0) {
-						this.state[i] = F.add(v, pInputs[i - 1]);
+						return F.add(v, pInputs[i - 1]);
 					}
+					return v;
 				});
 
 				// permute
@@ -262,20 +275,37 @@ class Poseidon {
 	}
 
 	squeeze() {
+		const F = this.F;
+
 		let rate = this.spec.rate;
 		let absorbing = this.absorbing;
 		assert(absorbing.length < rate);
 
-		absorbing.push(F.one);
+		absorbing.push(F.e(1));
 
 		for (let i = 0; i < absorbing.length; i++) {
 			this.state[i + 1] = F.add(this.state[i + 1], absorbing[i]);
 		}
+
 		this.permute();
 
 		this.absorbing = [];
 
 		return this.state[1];
+	}
+
+	printFormatted(value, text) {
+		text = text || "";
+		const F = this.F;
+		// let tmp = new Uint8Array(F.n8);
+		// F.toRprLE(tmp, 0, value);
+		console.log(F.toString(value, 16), text);
+	}
+
+	printState(state) {
+		state.forEach((s) => {
+			this.printFormatted(s);
+		});
 	}
 }
 
@@ -283,7 +313,24 @@ async function main() {
 	let poseidon = new Poseidon("./tmp/spec_values.json");
 	await poseidon.loadCurve();
 	await poseidon.parseSpec();
-	console.log(poseidon.spec);
+	poseidon.loadState();
+
+	let input = [
+		[
+			31, 74, 114, 51, 235, 141, 133, 7, 188, 101, 67, 146, 252, 94, 5,
+			219, 173, 155, 238, 219, 228, 155, 159, 93, 44, 131, 193, 94, 141,
+			243, 137, 37,
+		],
+		[
+			31, 74, 114, 51, 235, 141, 133, 7, 188, 101, 67, 146, 252, 94, 5,
+			219, 173, 155, 238, 219, 228, 155, 159, 93, 44, 131, 193, 94, 141,
+			243, 137, 37,
+		],
+	];
+
+	poseidon.updateFromRprLE(input);
+	let hash = poseidon.squeeze();
+	poseidon.printFormatted(hash, " final hash");
 }
 
 main()
