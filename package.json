@@ -1,6 +1,6 @@
 {
   "name": "poseidon-js",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -8,6 +8,15 @@
   },
   "author": "Janmajaya Mall",
   "license": "MIT",
+  "keywords": [
+    "poseidon",
+    "hash",
+    "zk"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Janmajayamall/poseidon-js"
+  },
   "devDependencies": {
     "ffjavascript": "^0.2.55"
   }
