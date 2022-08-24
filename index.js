@@ -1,15 +1,17 @@
 const assert = require("assert");
-const { getCurveFromName, utils } = require("ffjavascript");
 const fs = require("fs");
 
 class Poseidon {
-	constructor(specPath) {
+	constructor(specPath, curve) {
+		// check curve
+		assert(curve.Fr != undefined);
+		assert(curve.G1 != undefined);
+
 		this.specPath = specPath;
+		this.curve = curve;
+		this.F = curve.Fr;
 
 		this.spec = undefined;
-		this.F = undefined;
-		this.curve = undefined;
-
 		this.state = [];
 		this.absorbing = [];
 	}
@@ -111,11 +113,6 @@ class Poseidon {
 				});
 			});
 		});
-	}
-
-	async loadCurve() {
-		this.curve = await getCurveFromName("bn128", true);
-		this.F = this.curve.Fr;
 	}
 
 	loadState() {
@@ -309,32 +306,34 @@ class Poseidon {
 	}
 }
 
-async function main() {
-	let poseidon = new Poseidon("./tmp/spec_values.json");
-	await poseidon.loadCurve();
-	await poseidon.parseSpec();
-	poseidon.loadState();
+module.exports = { Poseidon };
 
-	let input = [
-		[
-			31, 74, 114, 51, 235, 141, 133, 7, 188, 101, 67, 146, 252, 94, 5,
-			219, 173, 155, 238, 219, 228, 155, 159, 93, 44, 131, 193, 94, 141,
-			243, 137, 37,
-		],
-		[
-			31, 74, 114, 51, 235, 141, 133, 7, 188, 101, 67, 146, 252, 94, 5,
-			219, 173, 155, 238, 219, 228, 155, 159, 93, 44, 131, 193, 94, 141,
-			243, 137, 37,
-		],
-	];
+// async function main() {
+// 	let poseidon = new Poseidon("./tmp/spec_values.json");
+// 	await poseidon.loadCurve();
+// 	await poseidon.parseSpec();
+// 	poseidon.loadState();
 
-	poseidon.updateFromRprLE(input);
-	let hash = poseidon.squeeze();
-	poseidon.printFormatted(hash, " final hash");
-}
+// 	let input = [
+// 		[
+// 			31, 74, 114, 51, 235, 141, 133, 7, 188, 101, 67, 146, 252, 94, 5,
+// 			219, 173, 155, 238, 219, 228, 155, 159, 93, 44, 131, 193, 94, 141,
+// 			243, 137, 37,
+// 		],
+// 		[
+// 			31, 74, 114, 51, 235, 141, 133, 7, 188, 101, 67, 146, 252, 94, 5,
+// 			219, 173, 155, 238, 219, 228, 155, 159, 93, 44, 131, 193, 94, 141,
+// 			243, 137, 37,
+// 		],
+// 	];
 
-main()
-	.then(() => {})
-	.catch((e) => {
-		console.log(e);
-	});
+// 	poseidon.updateFromRprLE(input);
+// 	let hash = poseidon.squeeze();
+// 	poseidon.printFormatted(hash, " final hash");
+// }
+
+// main()
+// 	.then(() => {})
+// 	.catch((e) => {
+// 		console.log(e);
+// 	});
