@@ -245,11 +245,11 @@ class Poseidon {
 
 		let rate = this.spec.rate;
 		let pInputs = [];
-		let k = 0;
+		let k = -1;
 		for (let i = 0; i < absorbing.length; i++) {
 			pInputs.push(absorbing[i]);
 
-			if ((i != 0 || rate == 1) && (i + 1) % rate == 0) {
+			if ((i + 1) % rate == 0) {
 				// add pInputs to state
 				assert(this.state.length - 1 == pInputs.length);
 				this.state = this.state.map((v, i) => {
