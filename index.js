@@ -1,13 +1,13 @@
 const assert = require("assert");
-const fs = require("fs");
 
 class Poseidon {
-	constructor(specPath, curve) {
+	constructor(rawSpecJson, curve) {
 		// check curve
 		assert(curve.Fr != undefined);
 		assert(curve.G1 != undefined);
+		assert(typeof rawSpecJson == "object");
 
-		this.specPath = specPath;
+		this.rawSpecJson = rawSpecJson;
 		this.curve = curve;
 		this.F = curve.Fr;
 
@@ -16,103 +16,87 @@ class Poseidon {
 		this.absorbing = [];
 	}
 
-	async parseSpec() {
+	parseSpec() {
 		if (this.F == undefined) throw new Error("Curve not loaded!");
 		const F = this.F;
 
-		this.spec = await new Promise((resolve, reject) => {
-			fs.readFile(this.specPath, "utf-8", (error, data) => {
-				if (error) {
-					reject(`spec parsing failed with ${error}`);
-				}
+		let raw = rawSpecJson;
 
-				let raw = JSON.parse(data);
+		// TODO: we need to check that length of `start` and `end` is correct.
+		// That is to say that they sum upto `rF` and the division of full rounds
+		// between them is correct. This is important since the implementation
+		// relies on these arrays for calculating full rounds (for ex, when performing
+		// second half of full rounds we simply iterate over `end` array of round constants).
+		// Also make sure that length of `partial` matches expected number of partial
+		// rounds.
+		let constants = {};
+		constants.start = [];
+		for (let j = 0; j < raw.constants.start.length; j++) {
+			let roundConstantsRaw = raw.constants.start[j];
+			let roundConstants = [];
+			for (let i = 0; i < roundConstantsRaw.length; i++) {
+				roundConstants.push(F.fromRprLE(roundConstantsRaw[i]));
+			}
+			constants.start.push(roundConstants);
+		}
+		constants.end = [];
+		for (let j = 0; j < raw.constants.end.length; j++) {
+			let roundConstantsRaw = raw.constants.end[j];
+			let roundConstants = [];
+			for (let i = 0; i < roundConstantsRaw.length; i++) {
+				roundConstants.push(F.fromRprLE(roundConstantsRaw[i]));
+			}
+			constants.end.push(roundConstants);
+		}
+		constants.partial = [];
+		for (let j = 0; j < raw.constants.partial.length; j++) {
+			constants.partial.push(F.fromRprLE(raw.constants.partial[j]));
+		}
 
-				// TODO: we need to check that length of `start` and `end` is correct.
-				// That is to say that they sum upto `rF` and the division of full rounds
-				// between them is correct. This is important since the implementation
-				// relies on these arrays for calculating full rounds (for ex, when performing
-				// second half of full rounds we simply iterate over `end` array of round constants).
-				// Also make sure that length of `partial` matches expected number of partial
-				// rounds.
-				let constants = {};
-				constants.start = [];
-				for (let j = 0; j < raw.constants.start.length; j++) {
-					let roundConstantsRaw = raw.constants.start[j];
-					let roundConstants = [];
-					for (let i = 0; i < roundConstantsRaw.length; i++) {
-						roundConstants.push(F.fromRprLE(roundConstantsRaw[i]));
-					}
-					constants.start.push(roundConstants);
-				}
-				constants.end = [];
-				for (let j = 0; j < raw.constants.end.length; j++) {
-					let roundConstantsRaw = raw.constants.end[j];
-					let roundConstants = [];
-					for (let i = 0; i < roundConstantsRaw.length; i++) {
-						roundConstants.push(F.fromRprLE(roundConstantsRaw[i]));
-					}
-					constants.end.push(roundConstants);
-				}
-				constants.partial = [];
-				for (let j = 0; j < raw.constants.partial.length; j++) {
-					constants.partial.push(
-						F.fromRprLE(raw.constants.partial[j])
-					);
-				}
+		let mdsMatrices = {};
+		mdsMatrices.mds = [];
+		for (let j = 0; j < raw.mdsMatrices.mds.length; j++) {
+			let rowRaw = raw.mdsMatrices.mds[j];
+			let row = [];
+			for (let i = 0; i < rowRaw.length; i++) {
+				row.push(F.fromRprLE(rowRaw[i]));
+			}
+			mdsMatrices.mds.push(row);
+		}
+		mdsMatrices.preSparseMds = [];
+		for (let j = 0; j < raw.mdsMatrices.preSparseMds.length; j++) {
+			let rowRaw = raw.mdsMatrices.preSparseMds[j];
+			let row = [];
+			for (let i = 0; i < rowRaw.length; i++) {
+				row.push(F.fromRprLE(rowRaw[i]));
+			}
+			mdsMatrices.preSparseMds.push(row);
+		}
+		mdsMatrices.sparseMatrices = [];
+		for (let j = 0; j < raw.mdsMatrices.sparseMatrices.length; j++) {
+			let sparseMatrixRaw = raw.mdsMatrices.sparseMatrices[j];
+			let sparseMatrix = {};
+			sparseMatrix.row = [];
+			for (let i = 0; i < sparseMatrixRaw.row.length; i++) {
+				sparseMatrix.row.push(F.fromRprLE(sparseMatrixRaw.row[i]));
+			}
+			sparseMatrix.colHat = [];
+			for (let i = 0; i < sparseMatrixRaw.colHat.length; i++) {
+				sparseMatrix.colHat.push(
+					F.fromRprLE(sparseMatrixRaw.colHat[i])
+				);
+			}
+			mdsMatrices.sparseMatrices.push(sparseMatrix);
+		}
 
-				let mdsMatrices = {};
-				mdsMatrices.mds = [];
-				for (let j = 0; j < raw.mdsMatrices.mds.length; j++) {
-					let rowRaw = raw.mdsMatrices.mds[j];
-					let row = [];
-					for (let i = 0; i < rowRaw.length; i++) {
-						row.push(F.fromRprLE(rowRaw[i]));
-					}
-					mdsMatrices.mds.push(row);
-				}
-				mdsMatrices.preSparseMds = [];
-				for (let j = 0; j < raw.mdsMatrices.preSparseMds.length; j++) {
-					let rowRaw = raw.mdsMatrices.preSparseMds[j];
-					let row = [];
-					for (let i = 0; i < rowRaw.length; i++) {
-						row.push(F.fromRprLE(rowRaw[i]));
-					}
-					mdsMatrices.preSparseMds.push(row);
-				}
-				mdsMatrices.sparseMatrices = [];
-				for (
-					let j = 0;
-					j < raw.mdsMatrices.sparseMatrices.length;
-					j++
-				) {
-					let sparseMatrixRaw = raw.mdsMatrices.sparseMatrices[j];
-					let sparseMatrix = {};
-					sparseMatrix.row = [];
-					for (let i = 0; i < sparseMatrixRaw.row.length; i++) {
-						sparseMatrix.row.push(
-							F.fromRprLE(sparseMatrixRaw.row[i])
-						);
-					}
-					sparseMatrix.colHat = [];
-					for (let i = 0; i < sparseMatrixRaw.colHat.length; i++) {
-						sparseMatrix.colHat.push(
-							F.fromRprLE(sparseMatrixRaw.colHat[i])
-						);
-					}
-					mdsMatrices.sparseMatrices.push(sparseMatrix);
-				}
-
-				resolve({
-					constants,
-					mdsMatrices,
-					rF: raw.rF,
-					rP: raw.rP,
-					t: raw.t,
-					rate: raw.rate,
-				});
-			});
-		});
+		this.spec = {
+			constants,
+			mdsMatrices,
+			rF: raw.rF,
+			rP: raw.rP,
+			t: raw.t,
+			rate: raw.rate,
+		};
 	}
 
 	loadState() {
@@ -307,33 +291,3 @@ class Poseidon {
 }
 
 module.exports = { Poseidon };
-
-// async function main() {
-// 	let poseidon = new Poseidon("./tmp/spec_values.json");
-// 	await poseidon.loadCurve();
-// 	await poseidon.parseSpec();
-// 	poseidon.loadState();
-
-// 	let input = [
-// 		[
-// 			31, 74, 114, 51, 235, 141, 133, 7, 188, 101, 67, 146, 252, 94, 5,
-// 			219, 173, 155, 238, 219, 228, 155, 159, 93, 44, 131, 193, 94, 141,
-// 			243, 137, 37,
-// 		],
-// 		[
-// 			31, 74, 114, 51, 235, 141, 133, 7, 188, 101, 67, 146, 252, 94, 5,
-// 			219, 173, 155, 238, 219, 228, 155, 159, 93, 44, 131, 193, 94, 141,
-// 			243, 137, 37,
-// 		],
-// 	];
-
-// 	poseidon.updateFromRprLE(input);
-// 	let hash = poseidon.squeeze();
-// 	poseidon.printFormatted(hash, " final hash");
-// }
-
-// main()
-// 	.then(() => {})
-// 	.catch((e) => {
-// 		console.log(e);
-// 	});
