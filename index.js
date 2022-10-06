@@ -20,7 +20,7 @@ class Poseidon {
 		if (this.F == undefined) throw new Error("Curve not loaded!");
 		const F = this.F;
 
-		let raw = rawSpecJson;
+		let raw = this.rawSpecJson;
 
 		// TODO: we need to check that length of `start` and `end` is correct.
 		// That is to say that they sum upto `rF` and the division of full rounds
